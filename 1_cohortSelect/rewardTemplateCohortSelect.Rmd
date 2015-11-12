@@ -1,0 +1,81 @@
+---
+title: "templateCohortSelection"
+author: "Rastko Ciric"
+date: "10/28/2015"
+output: html_document
+---
+
+*Subject cohort selection for the reward dataset*
+=========================
+
+
+The objective is to ensure that the subsample (n = 120) of the reward dataset defined by rewardTemplateCohortSelect.m is balanced across age, sex, and diagnostic categories. This subsample will subsequently be used to generate a dataset-specific template.
+
+Cohort identification requires a table of demographic variables (input/rewardCohort.csv) and QA information for the entire dataset (input/rewardScan_qa.csv).
+
+_Overview of cohort selection strategy_
+
+1.  Determine age bins. In this case, age quintiles were used.
+2.  Define diagnostic categories. We separated subjects into three categories: healthy/controls (no diagnosis), psychotic disorders (schizophrenia, schizoaffective disorder, schizophreniform disorder, psychotic disorder NOS, and clinical risk), and mood disorders (bipolar I, bipolar II, MDD, bipolar NOS, depressive NOS). Subjects whose diagnostic labels did not match any specifications were excluded from further consideration.
+3.  Screen all subjects using the QA information.
+4.  Categorise all subjects according to age, sex, and diagnosis. We defined total of 30 categories (5 age * 2 sex * 3 diagnosis).
+5.  Balance across the 30 categories, ensuring that the same subject is not represented multiple times (e.g., in two different age bins for two different scan sessions).
+
+
+```{r, echo=FALSE,eval=TRUE,warning=FALSE}
+suppressMessages(library('pracma'))
+library(knitr)
+
+#load data
+samplePath <- "/data/jag/BBL/templates/rewardTemplate2/templateCreation/0_cohortSelect/input/rewardCohort.csv"
+qaPath <- "/data/jag/BBL/templates/rewardTemplate2/templateCreation/0_cohortSelect/input/rewardScan_qa.csv"
+sample <- read.csv(samplePath)
+qa <- read.csv(qaPath)
+  
+# load proposed cohort
+cohortPath <- "/data/jag/BBL/templates/rewardTemplate2/templateCreation/0_cohortSelect/output/templateCohort.csv"
+template <- read.csv(cohortPath, header = FALSE)
+
+templateInfo <- sample[0,]
+# assemble full information for cohort
+for (i in 1:dim(template)[1]){
+  scanidx <- match(template[i,2],sample[,2])
+  scaninfo <- sample[scanidx,]
+  templateInfo <- rbind(templateInfo,scaninfo)
+}
+
+# rename vars
+templateInfo$male<-NA
+templateInfo$male[which(templateInfo$sex==0)]<-"female"
+templateInfo$male[which(templateInfo$sex==1)]<-"male"
+templateInfo$male<-as.factor(templateInfo$male)
+
+templateInfo$age<-templateInfo$age_at_date_provided
+
+templateInfo$diagnosis<-"exclude"
+templateInfo$diagnosis[which(templateInfo$primarydiagnosis=='Schizophrenia' | templateInfo$primarydiagnosis=='Schizoaffective' | templateInfo$primarydiagnosis=='Schizophreniform' | templateInfo$primarydiagnosis=='psychoticDisorderNOS' | templateInfo$primarydiagnosis=='clinicalRisk')]<-"psychosis"
+templateInfo$diagnosis[which(templateInfo$primarydiagnosis=='bipolarDisorderNOS' | templateInfo$primarydiagnosis=='bipolarDisorderTypeI' | templateInfo$primarydiagnosis=='bipolarDisorderTypeII' | templateInfo$primarydiagnosis=='bipoloarDisorderNOS' | templateInfo$primarydiagnosis=='majorDepressiveDisorder' | templateInfo$primarydiagnosis=='depressiveDisorderNOS')]<-"mood"
+templateInfo$diagnosis[which(templateInfo$primaryDiagnosis=='noDiagnosis')]<-"control"
+templateInfo$diagnosis<-as.factor(templateInfo$diagnosis)
+#create age bin quantiles
+ageBins<-quantile(templateInfo$age,probs = seq(0, 1, 0.20))
+templateInfo$ageBin<-NA
+for (j in 1:length(ageBins)){
+  templateInfo$ageBin[which(templateInfo$age>=ageBins[j] & templateInfo$age<ageBins[j+1] )]<-j
+}
+templateInfo$ageBin[which(templateInfo$age==ageBins[6])]<-5
+```
+
+```{r, echo=FALSE,eval=TRUE,warning=FALSE}
+kable(table(templateInfo$ageBin,templateInfo$male))
+kable(table(templateInfo$ageBin,templateInfo$diagnosis))
+kable(table(templateInfo$male,templateInfo$diagnosis))
+
+ageMeanSex<-tapply(templateInfo$age,templateInfo$male,mean)
+kable(as.data.frame(ageMeanSex))
+
+ageMeanHealth<-tapply(templateInfo$age,templateInfo$diagnosis,mean)
+kable(as.data.frame(ageMeanHealth))
+
+hist(templateInfo$age,breaks = 8)
+```
